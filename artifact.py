@@ -4,7 +4,7 @@ HASH_ALGORITHM = "sha256"
 STRING_ENCODING = "utf-8"
 
 # Maps sha-256 hash digest to artifact #TODO: figure out the store
-STORE = dict()
+STORE = dict() #TODO: make a Store class
 
 # Kinds of Artifacts:
 UNK = "UNK" # Unknown
