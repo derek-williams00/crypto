@@ -1,0 +1,14 @@
+# Artifact Transmission Control Codes
+
+
+"PING" - Request time
+"TIME" - Report time
+
+"SIDQ" - Request session id
+"SIDR" - Report session id
+
+"TERM" - Report termination of session
+
+
+
+

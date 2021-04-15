@@ -30,9 +30,16 @@ class Peer:
     def has_socket(self):
         return self.socket != None
 
-    def get_session_id(self):
+    def _exchange_session_ids(self, node_session_id):
         if self.session_id == None:
-            pass #TODO
+            self.socket.sendall(node_session_id[0:8])
+            self.session_id = self.socket.recv(8)
+
+    def get_session_id(self, node_session_id=None):
+        if node_session_id != None:
+            self._exchange_session_ids(node_session_id)
+        elif self.session_id == None:
+            raise Exception("Could not exchange session ids without providing own id.")
         return self.session_id
 
     def connect(self, node_session_id):
