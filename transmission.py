@@ -3,13 +3,14 @@ import time
 import random
 
 
-#MIGHT NEED LATER:  HOST = "127.0.0.1"
-PORT = 50505 #TODO: consider changing this port
+PORT = 50505
 
 SERVER_BACKLOG = 5
+SERVER_TIMEOUT = 1.0
 
 MAX_SESSION_ID = 1073741824
 MIN_SESSION_ID = 2048
+
 
 
 
@@ -27,39 +28,58 @@ class Peer:
         self.socket = socket
         self.session_id = None
 
-    def has_socket(self):
-        return self.socket != None
-
-    def _exchange_session_ids(self, node_session_id):
-        if self.session_id == None:
-            self.socket.sendall(node_session_id[0:8])
-            self.session_id = self.socket.recv(8)
-
-    def get_session_id(self, node_session_id=None):
-        if node_session_id != None:
-            self._exchange_session_ids(node_session_id)
-        elif self.session_id == None:
-            raise Exception("Could not exchange session ids without providing own id.")
-        return self.session_id
-
     def connect(self, node_session_id):
         if self.socket == None:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, PORT))
-        if self.session_id == None:
-            self.socket.sendall(node_session_id[0:8])
-            self.session_id = self.socket.recv(8)
+        self.socket.sendall(b'SIDR')
+        self.socket.sendall(node_session_id[0:8])
+        self.session_id = self.socket.recv(8)
+
+    def disconnect(self):
+        if self.socket != None:
+            self.socket.sendall(b'TERM')
+            self.socket.close()
+            self.socket = None
+
+    def is_connected(self):
+        return self.socket != None
 
     def ping(self):
-        if not self.has_socket():
+        if not self.is_connected():
             self.connect()
-        pass #TODO
+        self.socket.sendall(b'PING')
+
+    def handle(self, **kwargs):
+        transcode = self.socket.recv(4)
+        if transcode == b'SIDR':
+            # Session ID report
+            self.session_id = self.socket.recv(8)
+        elif transcode == b'SIDQ':
+            # Session ID request
+            if not kwargs.has_key("local_sid"):
+                return
+            self.socket.sendall(b'SIDR')
+            self.socket.sendall(kwargs["local_sid"])
+        elif transcode == b'PING':
+            # PING - time and latency check
+            self.socket.sendall(b'TIME')
+            cur_time_ms = int(time.time() * 1000)
+            self.socket.sendall(bytes(hex(cur_time_ms), "utf-8"))
+        elif transcode == b'TIME':
+            # TIME - time report
+            time_msg = self.socket.recv(32)
+            time_reported = int(time_msg.decode("utf-8"))
+            latency = int(time.time()) - int(time_reported)
+            print("[SID {}] time: {}, latency: {} s".format(self.session_id, time_reported, latency))
+        elif transcode == b'TERM':
+            self.socket.close()
+            self.socket = None
 
 
 
 
-
-
+#TODO implement client-only functionality
 class Node:
     '''
         Handles connections with other nodes.
@@ -78,10 +98,17 @@ class Node:
         session_n_hex = hex(session_n)[2:].rjust(8, "0")
         self.session_id = bytes(session_n_hex, "utf-8")
 
+    def str_sid(self):
+        return str(self.session_id, "utf-8")
+
+    def n_peers(self):
+        return len(self.peers)
+
     def start_server(self):
         if self.server_socket == None:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.settimeout(SERVER_TIMEOUT)
             self.server_socket.bind(('', PORT))
             self.server_socket.listen(SERVER_BACKLOG)
         else:
@@ -101,11 +128,15 @@ class Node:
         pass #TODO
 
     def handle_new_connections(self):
-        client_socket, client_addr = self.server_socket.accept()
-        client_socket.setblocking(False)
-        client_socket.settimeout(None)
-        peer = Peer(socket=client_socket)
-        self.add_peer(peer)
+        try:
+            client_socket, client_addr = self.server_socket.accept()
+            client_socket.setblocking(False)
+            client_socket.settimeout(None)
+            peer = Peer(socket=client_socket)
+            self.add_peer(peer)
+            return True # Return true if new connections are opened
+        except socket.timeout:
+            return False # Return false for no new connections
 
 
 
